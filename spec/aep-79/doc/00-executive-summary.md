@@ -1,185 +1,76 @@
-# 00. Executive Summary
+# 00. Executive summary
 
-| | |
+| Field | Value |
 |---|---|
-| **Document** | 00. Executive summary |
-| **Doc ID** | AKASH-MIG-00 |
-| **Version** | 0.9 (draft for review) |
-| **Date** | 2026-08-10 |
-| **Owner** | Overclock Labs |
-| **Audience** | Everyone: start here |
-| **Status** | Informative summary of the normative set |
+| Doc ID | AKASH-MIG-00 |
+| Version | 0.9 draft, 2026-08-10 |
+| Owner | Overclock Labs |
+| Audience | Governance, leadership, vendors, providers, exchanges, and community |
 
-## Purpose
+## Program in one page
 
-A ten-minute orientation to the entire migration program: why Akash is leaving its sovereign Cosmos
-SDK chain, where it is going, how the move works, what it costs, and what could go wrong. Every claim
-here is elaborated in a numbered document ([README](./README.md) has the map).
+AEP-79 proposes rebuilding the Akash decentralized-compute marketplace on a shared high-throughput chain and winding down `akashnet-2`. Gate 0 chooses one of two fully specified paths:
 
-## In scope
+| Path | Target | Strengths | Principal uncertainty |
+|---|---|---|---|
+| A | Solana mainnet | DePIN distribution, low fees, high throughput, native Pyth, Token-2022 | Exchange/custody support and the Alpenglow transition |
+| B | Existing general-purpose EVM L2, selected at Gate 0 | Mature Solidity/audit tooling, exchange and enterprise reach, standard governance/claims stack | Host-chain fees, policy, sequencer, and decentralization |
 
-- Drivers, candidate targets, migration shape, program plan, effort, top risks, all summarized.
+An Arbitrum Orbit L3 is specified as a non-default EVM fallback. Ethereum L1, a new sovereign rollup, SVM L2s, Cosmos shared security, and the status quo do not meet the combined operating-cost, distribution, and scalability goals. See [02](./02-target-selection.md).
 
-## Out of scope
+## What is preserved
 
-- Normative requirements (live in docs 02–11); rationale detail (02, 13).
+- The `deployment → group → order → bid → lease` lifecycle and tenant-selected winning bid.
+- SDL and canonical manifest hashing; manifests remain off chain.
+- ACT-denominated pricing, AKT/ACT burn-mint escrow (BME), and the `9500/9000` bps collateral-ratio warning/halt thresholds.
+- Lazy streaming escrow, FIFO multi-depositor refunds, overdrawn behavior, delegated deposits with allowance restoration, AKT fallback under BME CR-halt, and 100% provider payout.
+- Provider records, auditor-signed attributes, reclamation windows (`1h–720h`), and client-facing sequence semantics.
 
----
+The implementation is a behavioral port, not a byte-for-byte state migration. Live leases remain on the old chain and end or redeploy during wind-down.
 
-## 1. What this program is
+## What changes
 
-Akash Network operates a decentralized compute marketplace: tenants deploy containerized workloads
-(defined in SDL manifests) and independent providers bid to host them, with payments streaming
-through on-chain escrow. Today the protocol runs as its own Cosmos SDK Layer-1 (`akashnet-2`),
-secured by ~100 validators bonding AKT, and has evolved a sophisticated on-chain economy: a
-dual-token system (AKT plus ACT, an oracle-priced compute-credit token minted against AKT through a
-collateralized burn-mint engine), streaming escrow with multi-depositor support, provider
-attestation, and an on-chain Pyth price feed hosted in CosmWasm.
+- Consensus, validators, staking, slashing, sovereign inflation, and Akash-maintained Cosmos forks end.
+- IBC and general-purpose CosmWasm are not carried forward; Pyth is read directly.
+- The x509 certificate registry is replaced by wallet-signed JWTs and provider owner/operator/TLS keys anchored in the provider registry.
+- Block-driven handlers become permissionless cranks on Solana or redundant keeper automation on EVM.
+- Protocol time uses Unix seconds. Streaming rates use fixed point `×10^18`; the one-time per-block conversion is exactly `×2/13` for the old 6.5-second block target.
+- Governance becomes Realms + Squads + timelock on Solana or OpenZeppelin Governor + Safe + timelock on EVM. Launch code is upgradeable with a defined path to DAO control and core immutability.
+- Reduced, hard-capped emissions replace validator inflation and fund provider incentives plus the community treasury; the curve is decided at G1.
 
-This program migrates the protocol (its marketplace logic, tokens, balances, and community) onto
-one of two candidate execution layers, **Solana** or **Ethereum (an existing EVM L2)**, retiring the sovereign
-chain. This document set carries both paths at identical, execution-ready depth. The full analysis is
-[02. Target selection](./02-target-selection.md); the target is selected at **Gate 0** on the
-evidence of a kickoff verification sprint.
+## Migration shape
 
-## 2. Why
+`C` is cutover and the first snapshot (`S1`); `H` is the final old-chain block, normally `C+90d`; `S2` is the residual snapshot at `H`.
 
-1. **Capital efficiency:** AKT bonded for consensus security does nothing for the marketplace.
-   Inherited security frees it for provider incentives and liquidity.
-2. **Operational overhead:** Akash maintains forks of cosmos-sdk, CometBFT and gogoproto, a
-   16-upgrade release history, validator coordination, and an entire CosmWasm subsystem whose only
-   production job is importing Pyth prices. On the targets, most of this apparatus ceases to exist
-   rather than being re-hosted.
-3. **Scale with cost predictability:** marketplace operations (orders, bids, settlements, BME
-   swaps) are chatty; both targets price this at ≤$0.01/op with 10–100× headroom.
-4. **Distribution:** users, wallets, stablecoins, DeFi, and, on Solana, the entire DePIN category
-   (Helium, Render, io.net, Hivemapper) are already there. Meanwhile the Cosmos ecosystem is
-   consolidating (Noble's exit to its own EVM L1 in Mar 2026 being the sharpest recent signal).
+1. Before `C`, deploy the target protocol, open provider re-registration, rehearse the migration, coordinate exchanges, and campaign for IBC vouchers to return home.
+2. At `C`, activate `v3.0.0-sunset`. New old-chain marketplace intake stops, but existing leases may settle, withdraw, close, refund, top up, and burn ACT.
+3. `S1` credits liquid balances, bonded/unbonding stake, rewards accrued through `C`, and remaining vesting entitlements. Module-held funds become a target-chain Wind-down Reserve. Total target entitlement is fixed at `S1`.
+4. Publish the S1 root within 24 hours after two independent pipelines agree. Exchanges may execute custodial swaps immediately; self-custody claims open after a seven-day public verification window, about `C+8–10d`.
+5. During `C→H`, weekly residual roots pay old-chain provider earnings and refunds from the Reserve. Credits are incremental, FIFO-attributed, and capped at S1 principal. Post-S1 old-chain minting or module inflows create no new claim value.
+6. At `H`, virtually settle remaining accounts, publish `S2`, distribute all residual entitlement, halt with `v3.1.0-halt`, publish archives, then decommission infrastructure by `H+90d`.
 
-Akash pays sovereign costs without using sovereign powers: the codebase survey
-([01](./01-current-architecture.md)) found no consensus-level customization the marketplace actually
-depends on. That asymmetry is the case for leaving.
+There is no persistent bridge. Claims use a two-year window; stranded IBC vouchers use a bounded foundation redemption process.
 
-## 3. Where: two candidate targets
+## Delivery and control
 
-The protocol will run on one of two targets. Both are specified to the same execution-ready depth,
-and the choice between them is made at **Gate 0**, on the evidence collected during the kickoff
-verification sprint (decision D-01; the evidence items are listed in
-[02 §4.2](./02-target-selection.md)). All work before Gate 0 is target-neutral.
+- Eight phases (`P0–P7`) and six decision gates (`G0–G5`) separate target selection, design freeze, code complete, launch readiness, S1 verification, and close-out.
+- Verification is parity-first: golden vectors mechanically extracted from current keepers and at least 250 real mainnet lifecycles, exact integer comparison, property tests, full-stack scenarios, public testnet, load tests, and four rehearsals (`R1–R4`).
+- Launch requires two independent audits of each on-chain tranche, fixes re-verified, a public audit competition for marketplace/economics, an infrastructure review, a live bounty, verifiable builds, monitoring, and rehearsed pause/recovery paths.
+- Planning envelope: `142–200` person-months, peaking near `13–14 FTE`, plus Overclock commitment of at least two counterpart engineers. External audits, bounty, infrastructure, testnet rewards, legal, and archive hosting are separate client costs.
 
-**Path A: Solana mainnet** ([03](./03-solana-architecture.md)). What it offers:
+## Highest risks
 
-- The DePIN category is concentrated there, along with the two closest precedent migrations:
-  Helium's full L1 sunset (2023, healthy three years on) and Render's token move.
-- Fees (~$0.001 per transaction, median) and 100M-CU blocks comfortably absorb a chatty
-  marketplace.
-- Pyth is native, so the current CosmWasm-hosted oracle apparatus disappears instead of being
-  rebuilt.
-- Token-2022 expresses ACT's non-transferability directly at the mint level.
+| Risk | Primary control |
+|---|---|
+| Claims honeypot exploit | Immutable roots, one-claim receipts, constrained minting, two audits, formal/property checks, velocity breaker |
+| Snapshot/supply mismatch | Two independent exporters, exact root match, conservation proof, public verification window |
+| Escrow or BME parity defect | Golden-vector replay, integer-exact comparison, invariants, economic red-team |
+| Governance rejection | Signal vote before G0, binding vote before irreversible action |
+| Provider or validator attrition | Early re-registration, incentives, uptime commitments, backstop capacity |
+| Exchange delay and holder confusion | 3–6 month outreach, venue playbooks, volume-coverage gate, status reporting |
+| Target instability or fee shock | Gate 0 evidence, performance/chaos tests, delay authority, EVM portability |
+| Scope/audit schedule growth | Frozen requirements, change control, staged audits, contingency reserve |
 
-**Path B: Ethereum, as contracts on an existing EVM L2** ([04](./04-ethereum-architecture.md)). The
-specific host chain is selected per Q-42; candidates include Base, Arbitrum One, and Robinhood
-Chain. What it offers:
+The point of no return is execution of S1: sunset activation at `C` plus the start of exchange custodial swaps. Abort paths exist only before that point.
 
-- The deepest engineering, audit, and tooling market of any ecosystem.
-- Enterprise credibility and exchange-affiliated distribution funnels.
-- Commodity infrastructure for claims, vesting, and governance, giving this path the lowest
-  execution novelty.
-
-A dedicated rollup (Arbitrum Orbit) is specified as a variant of Path B but is not a default path:
-operating one would re-create the burden this migration exists to eliminate (D-02).
-
-## 4. How: the migration shape
-
-Five structural decisions define the mechanics (full log:
-[13](./13-open-questions-and-assumptions.md)):
-
-1. **Rebuild, don't port bytes.** The marketplace programs/contracts re-implement current semantics
-   exactly (order→bid→lease flow, streaming escrow, ACT pricing, reclamation windows, SDL
-   untouched), verified by a differential-testing harness that replays recorded mainnet histories
-   through the new implementation ([09](./09-testing-and-verification.md)).
-2. **Dual snapshot, no bridge (D-05).** At cutover **S1**, all liquid AKT/ACT balances, vesting
-   schedules, and (as liquid) staked positions become claimable on the target chain via Merkle
-   proofs signed with existing Cosmos keys. Exchanges swap custodial balances in bulk at S1, while
-   self-custody claims open after a ~7-day public verification of the snapshot root (D-05.b).
-   Funds locked in protocol accounts (escrow, BME vault, community pool, IBC escrows) back a
-   **Wind-down Reserve** on the target chain.
-3. **90-day wind-down, workloads never stop (D-08).** The old chain stops accepting new deployments
-   at S1 but keeps settling existing leases for 90 days. Providers' old-chain earnings and tenants'
-   refunds during this window are paid out in new-chain AKT via **weekly residual distributions**
-   from the reserve. At halt **S2**, a final distribution closes the books; supply conservation is
-   machine-verifiable end-to-end.
-4. **The token economy ports whole (D-19/D-20/D-12).** ACT remains a non-transferable compute
-   credit; the BME engine (queued AKT↔ACT swaps, collateral-ratio circuit breaker, Pyth-priced)
-   becomes a program/contract with permissionless crank execution. Sovereign inflation ends at S1;
-   a reduced, DAO-governed emissions schedule redirects to provider incentives and the treasury
-   (curve to be modeled; Q-01).
-5. **Identity and trust re-anchor (D-10/D-11).** Providers re-register on the new chain (with
-   collateral) before S1; auditors re-attest; the on-chain x509 registry is replaced by JWT auth
-   against on-chain registered keys. Governance moves to Realms+Squads (Solana) or
-   Governor+Safe+timelock (EVM), with program upgradeability behind multisig+timelock and a
-   published path to immutability.
-
-What each constituency experiences:
-
-- **Tenants:** existing leases run untouched through wind-down; new deployments go to the new chain
-  from day one; Console abstracts most of the difference; SDL files unchanged.
-- **Providers:** one daemon upgrade + one re-registration before S1; old-chain earnings arrive
-  weekly in new-chain AKT during wind-down.
-- **AKT holders:** exchange balances swap automatically; self-custody holders claim with their
-  existing keys (2-year window); stakers are credited liquid at S1; vesting continues on schedule.
-- **Validators:** the role ends at S2; a wind-down incentive (reserved at S1) pays for keeping the
-  chain healthy through the transition (Q-13).
-
-## 5. Program plan & effort
-
-Phases P0–P7 across gates G0–G5 ([10](./10-rollout-and-cutover.md)): mobilization & verification →
-design freeze → build → testnet + audits → rehearsals + binding governance approval → **S1 cutover**
-→ 90-day wind-down → **S2** + sunset + hypercare. This set sequences work by gates and protocol
-events (C, H) only; calendar planning is maintained separately and is not part of this technical
-package.
-
-Vendor scope ([11](./11-scope-of-work.md)) is structured as target-neutral **Stage A** (verification
-sprint, tokenomics modeling, migration-engine design, prototypes) and single-path **Stage B** after
-Gate 0, across nine workstreams (protocol, migration engine, off-chain/clients, security, QA,
-launch ops, docs). Planning estimate: **142–200 person-months**, team of ~8–12 FTE plus audit
-firms, with Overclock counterpart staffing of ≥2 FTE engineering plus product/comms/governance.
-Four migration rehearsals (R1–R4, ending with a final dress at S1−14d) on forked mainnet state and two
-independent snapshot implementations
-are non-negotiable quality gates; client-side budget lines (audits, bounty pool, RPC/infra opex,
-exchange coordination) are itemized separately.
-
-## 6. Top risks (register: [12](./12-risk-register.md))
-
-1. **Claims contract as honeypot:** it briefly custodies rights to essentially the entire supply;
-   mitigated by dual audits, dual-implementation root verification, staged authority, pause-without-
-   blocking-withdrawals design.
-2. **Escrow/BME parity defects:** money-losing behavioral drift vs the current chain; mitigated by
-   the differential-replay harness and invariant fuzzing.
-3. **Exchange coordination slippage:** precedent (Render) shows multi-month tails; mitigated by
-   early venue engagement and S1 gating on venue commitments covering ≥70% of volume.
-4. **Provider/validator attrition during wind-down:** mitigated by incentives reserved at S1 and
-   weekly payout cadence.
-5. **Host-chain events in our window:** Solana's Alpenglow consensus upgrade lands ~Q3–Q4 2026;
-   buffer in schedule + a Gate 0 evidence item.
-
-## 7. What this document set asks of you
-
-- **Akash community:** review 02 (the choice), 05 (your tokens), 10 (the timeline), 13 (what's still
-  open); the signal proposal follows this review cycle.
-- **Prospective Vendor:** respond against [11](./11-scope-of-work.md) with per-workstream approach,
-  team, and per-milestone pricing; every normative obligation carries a stable `REQ-*` ID for
-  traceability from proposal through acceptance.
-- **Overclock/core team:** validate assumptions A-01..A-13, staff the counterpart roles, and own the
-  governance and exchange tracks.
-
-## Cross-references
-
-- [README](./README.md): document map and conventions.
-- [02](./02-target-selection.md): full option analysis behind §3.
-- [05](./05-token-migration.md) / [06](./06-state-and-data-migration.md): the mechanics behind §4.
-- [11](./11-scope-of-work.md): the commercial ask behind §5.
-
-## Feeds into
-
-The community signal proposal (Gate 0) and Vendor RFP distribution.
+Start with [13](./13-open-questions-and-assumptions.md) for what is fixed versus open, [10](./10-rollout-and-cutover.md) for execution, and [12](./12-risk-register.md) for operational risk.
